@@ -1,5 +1,4 @@
-# _Sample project_
-
+# TPT Finder
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
 This is the simplest buildable example. The example is used by command `idf.py create-project`
