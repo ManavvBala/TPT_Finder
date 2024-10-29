@@ -184,6 +184,15 @@ void AD5933_start_freq_sweep(signed short* real_arr, signed short* imag_arr) {
     } while ((status & AD5933_STAT_SWEEP_DONE) == 0);
 }
 
+// one point gain factor calibration
+double gain_factor_calibration(double Z_calibration, double magnitude) {
+    return (1 / Z_calibration) / magnitude;
+}
+
+double calc_magnitude(int16_t real, int16_t imag) {
+    return sqrt((double)((real * real) + (imag * imag)));
+}
+
 double AD5933_calculate_impedance(double gainFactor, signed short real, signed short imag) {
     double magnitude = 0;
     double impedance = 0;
@@ -191,7 +200,7 @@ double AD5933_calculate_impedance(double gainFactor, signed short real, signed s
     double doubleRealData = (double)real;
     double doubleImagData = (double)imag;
     magnitude = sqrt((doubleRealData * doubleRealData) + (doubleImagData * doubleImagData));
-    //impedance = 1.0 / (magnitude * gainFactor);
-    impedance = (magnitude * gainFactor);
+    impedance = 1.0 / (magnitude * gainFactor);
+    //impedance = (magnitude * gainFactor);
     return(impedance);    
 }

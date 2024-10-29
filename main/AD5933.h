@@ -89,4 +89,8 @@ void AD5933_init_settings(double start_freq, double clock_freq, double freq_incr
 //  - write arrays to serial monitor
 double AD5933_calculate_impedance(double gainFactor, signed short real, signed short imag);
 
+double gain_factor_calibration(double Z_calibration, double magnitude);
+
+double calc_magnitude(int16_t real, int16_t imag);
+
 #endif

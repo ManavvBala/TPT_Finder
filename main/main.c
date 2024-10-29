@@ -22,7 +22,7 @@ i2c_master_bus_config_t i2c_master_config = {
     .flags.enable_internal_pullup = true,
 };
 
-int num_incr = 10;
+int num_incr = 3;
 
 
 // TESTING function for read/write + block read/write
@@ -83,32 +83,36 @@ void app_main(void)
     // reset
     AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
 
-    
 
-    //AD5933_basic_test();
-
-    AD5933_init_settings(30000, INTERNAL_CLOCK_FREQ, 1000, num_incr, AD5933_RANGE_400mVpp, AD5933_PGA_1, 25);
+    AD5933_init_settings(30000, INTERNAL_CLOCK_FREQ, 1000, num_incr, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
     
     // check to make sure theyre set
-    uint8_t settings[12];
-    AD5933_set_ptr_reg(AD5933_REG_CONTROL_HB);
-    AD5933_read_reg_block(settings, 12);
-    ESP_LOGI("settings", "\n");
-    print_uarr(settings, 12);
+    // uint8_t settings[12];
+    // AD5933_set_ptr_reg(AD5933_REG_CONTROL_HB);
+    // AD5933_read_reg_block(settings, 12);
+    // ESP_LOGI("settings", "\n");
+    // print_uarr(settings, 12);
 
     signed short real_arr[num_incr];
     signed short imag_arr[num_incr];
 
-    AD5933_start_freq_sweep(real_arr, imag_arr);
 
-    print_arr(real_arr, num_incr);
-    print_arr(imag_arr, num_incr);
+    while (1) {
+        AD5933_start_freq_sweep(real_arr, imag_arr);
 
-    for (int i = 0; i < num_incr; i ++){
-        double impedance = AD5933_calculate_impedance(1.0, real_arr[i], imag_arr[i]);
-        ESP_LOGI("impedance", "%f", impedance);
+        // print_arr(real_arr, num_incr);
+        // print_arr(imag_arr, num_incr);
+
+        // do gain factor calculation with first point:
+        double gain_factor = gain_factor_calibration(1000, calc_magnitude(real_arr[0], imag_arr[0]));
+
+        for (int i = 1; i < num_incr; i ++){
+            double impedance = AD5933_calculate_impedance(gain_factor, real_arr[i], imag_arr[i]);
+            ESP_LOGI("impedance", "%f", impedance);
+        }
+        ESP_LOGI("log",  "Pausing");
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     }
-
 
     // logic analyzer test code
     // while (1) {
