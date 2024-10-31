@@ -57,7 +57,6 @@
 
 #define CLOCK_FREQ 
 
-//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!UPDATE THISSS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 extern i2c_device_config_t dev_cfg;
 
 extern i2c_master_dev_handle_t AD5933_dev_handle;

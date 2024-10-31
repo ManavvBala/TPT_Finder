@@ -24,7 +24,6 @@ i2c_master_bus_config_t i2c_master_config = {
 
 int num_incr = 3;
 
-
 // TESTING function for read/write + block read/write
 void AD5933_basic_test() {
 
@@ -97,6 +96,8 @@ void app_main(void)
     signed short imag_arr[num_incr];
 
 
+    AD5933_start_freq_sweep(real_arr, imag_arr);
+    double gain_factor = gain_factor_calibration(330, calc_magnitude(real_arr[0], imag_arr[0]));
     while (1) {
         AD5933_start_freq_sweep(real_arr, imag_arr);
 
@@ -104,11 +105,12 @@ void app_main(void)
         // print_arr(imag_arr, num_incr);
 
         // do gain factor calculation with first point:
-        double gain_factor = gain_factor_calibration(1000, calc_magnitude(real_arr[0], imag_arr[0]));
+        
 
-        for (int i = 1; i < num_incr; i ++){
+        for (int i = 0; i < num_incr; i ++){
+            ESP_LOGI("log", "real: %d, imag: %d", real_arr[i], imag_arr[i]);
             double impedance = AD5933_calculate_impedance(gain_factor, real_arr[i], imag_arr[i]);
-            ESP_LOGI("impedance", "%f", impedance);
+            ESP_LOGI("log", "impedance: %f", impedance);
         }
         ESP_LOGI("log",  "Pausing");
         vTaskDelay(500 / portTICK_PERIOD_MS);
