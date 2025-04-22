@@ -1,6 +1,6 @@
 #include "AD5933.h"
-#include "driver/i2c_master.h"
-#include "driver/i2c_types.h"
+// #include "driver/i2c_master.h"
+// #include "driver/i2c_types.h"
 #include "esp_log.h"
 #include "math.h"
 
@@ -71,8 +71,8 @@ void AD5933_read_reg_block(uint8_t* read_buff, uint8_t num_bytes) {
     i2c_master_transmit_receive(AD5933_dev_handle, write_buff, 2, read_buff, num_bytes, -1);
 }
 
-// TODO: add functionality for PGA and initial voltage (clock too??)
-void AD5933_init_settings(double start_freq, double clock_freq, double freq_incr, uint16_t num_incr, uint8_t range, uint8_t PGA, uint16_t num_cycles) {
+void AD5933_init_settings(double start_freq, double clock_freq, double freq_incr,
+    uint16_t num_incr, uint8_t range, uint8_t PGA, uint16_t num_cycles) {
     // Start frequency
     uint8_t start_freq_bytes[3] = {0};
     uint32_t start_freq_code = (uint32_t)((start_freq / (clock_freq / 4)) * (1 << 27));
@@ -83,7 +83,7 @@ void AD5933_init_settings(double start_freq, double clock_freq, double freq_incr
     
     AD5933_write_block(AD5933_REG_FREQ_START, start_freq_bytes, 3);
 
-    // Freq Incr
+    // Freq Incr 
     uint8_t freq_incr_bytes[3] = {0};
     uint32_t freq_incr_code = (uint32_t)((freq_incr / (clock_freq / 4)) * (1 << 27));
 
@@ -186,7 +186,7 @@ void AD5933_start_freq_sweep(signed short* real_arr, signed short* imag_arr) {
 
 // one point gain factor calibration
 double gain_factor_calibration(double Z_calibration, double magnitude) {
-    return (1 / Z_calibration) / magnitude;
+    return (1 / (double)Z_calibration) / magnitude;
 }
 
 double calc_magnitude(int16_t real, int16_t imag) {
@@ -203,4 +203,45 @@ double AD5933_calculate_impedance(double gainFactor, signed short real, signed s
     impedance = 1.0 / (magnitude * gainFactor);
     //impedance = (magnitude * gainFactor);
     return(impedance);    
+}
+
+double arctan_phase_angle(double R, double I, bool* undefined) {
+    
+    // edge case when R = 0
+    if (R == 0) {
+        if (I == 0) {
+            *undefined = true;
+            return 0;
+        }
+        *undefined = false;
+        return (I < 0) ? -180 : 180;
+    }
+    // if R is not undefined it must be defined
+    *undefined = false;
+    double tan_IR = atan(I / R) * (180 / M_PI);
+    if (R > 0) {
+        if (I > 0){
+            return tan_IR;
+        }
+        else {
+            return 360 + tan_IR;
+        }
+    }
+    // negative real is same calculation
+    else {
+        return tan_IR + 180;
+    }
+}
+
+void compensated_real_and_imag(double impedance, double phase, double system_phase, double* comp_real, double* comp_imag) {
+    *comp_real = impedance * cos(phase - system_phase);
+    *comp_imag = impedance * sin(phase - system_phase);
+}
+
+// sets system_phase array values
+void system_phase_calibration(double* system_phases, int16_t* real, int16_t* imag, int num_incr) {
+    for (int i = 0; i < num_incr; i++) {
+        bool undefined;
+        system_phases[i] = arctan_phase_angle(real[i], imag[i], &undefined);
+    }
 }

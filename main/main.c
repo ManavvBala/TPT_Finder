@@ -1,17 +1,37 @@
 #include <stdio.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 #include "driver/i2c_master.h"
 #include "driver/i2c_types.h"
+#include "driver/usb_serial_jtag.h"
 #include "AD5933.h"
+#include "LogWriter.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_mac.h"
 
 #define I2C_MASTER_SCL_IO 9
 #define I2C_MASTER_SDA_IO 8
 
 #define MHz_6 6000000
 #define INTERNAL_CLOCK_FREQ 16000000
+
+#define START_FREQ 30000
+#define NUM_INCR 3
+#define FREQ_INCR 1000
+
+#define CALIBRATION_NUM_INCR 3
+
+#define BUFFER_SIZE 1024
+
+double gain_factor;
+//double system_phase;
+double gain_factor_range[CALIBRATION_NUM_INCR];
+double system_phase_range[CALIBRATION_NUM_INCR];
+// int16_t real[NUM_INCR];
+// int16_t imag[NUM_INCR];
 
 i2c_master_bus_config_t i2c_master_config = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
@@ -22,109 +42,215 @@ i2c_master_bus_config_t i2c_master_config = {
     .flags.enable_internal_pullup = true,
 };
 
-int num_incr = 3;
-
-// TESTING function for read/write + block read/write
-void AD5933_basic_test() {
-
-    // set + read single register
-    AD5933_set_reg_value(AD5933_REG_FREQ_START, 0x11);
-
-    AD5933_set_ptr_reg(AD5933_REG_FREQ_START);
-
-    uint8_t single_reg = 0;
-    AD5933_read_reg(&single_reg);
-
-    if (single_reg == 0x11) ESP_LOGI("test", "1st test passed");
-    else ESP_LOGI("test", "1st test FAILED!");
-
-    // set + read block register
-    uint8_t test_data[2] = {0x01,0x01};
-    AD5933_write_block(AD5933_REG_INC_NUM, test_data, 2);
-
-    AD5933_set_ptr_reg(AD5933_REG_INC_NUM);
-    uint8_t test_read[2];
-
-    AD5933_read_reg_block(test_read, 2);
-
-    if (test_read[0] == 0x01 && test_read[1] == 0x01) ESP_LOGI("test", "2nd test passed");
-    else ESP_LOGI("test", "2nd test FAILED!");
-}
+void HandleSerialInput();
 
 void print_uarr(uint8_t* arr, uint8_t n) {
     for (int i = 0; i < n; i++) {
-        ESP_LOGI("arr contents: ", "[%d] = %x", i, arr[i]);
+        //ESP_LOGI("arr contents: ", "[%d] = %x", i, arr[i]);
+        printf("arr contents: [%d] = %x\n", i, arr[i]);
     }
 }
 
 void print_arr(signed short* arr, uint8_t n) {
     for (int i = 0; i < n; i++) {
-        ESP_LOGI("arr contents: ", "[%d] = %d", i, arr[i]);
+        //ESP_LOGI("arr contents: ", "[%d] = %d", i, arr[i]);
+        printf("arr contents: [%d] = %d\n", i, arr[i]);
     }
 }
+
+void init_freq_arr(uint8_t n, uint16_t start, uint16_t step, uint16_t* arr) {
+    for (int i = 0; i < n; i++) {
+        arr[i] = start + step * i;
+    }
+}
+
+void print_double_arr(double* arr, int n) {
+    for (int i = 0; i < n; i++) {
+        ESP_LOGI("arr contents: ", "[%d] = %f", i, arr[i]);
+        //printf("arr contents: [%d] = %x\n", i, arr[i]);
+    }
+}
+
+/*
+void app_main(void) {
+    //HandleSerialInput();
+    usb_serial_jtag_driver_config_t usb_serial_config = {
+        .rx_buffer_size = BUFFER_SIZE,
+        .tx_buffer_size = BUFFER_SIZE,
+    };
+    
+    // Install the USB Serial JTAG driver
+    esp_err_t ret = usb_serial_jtag_driver_install(&usb_serial_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "USB Serial JTAG driver installation failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "USB Serial JTAG driver installed successfully");
+
+    uint8_t data[BUFFER_SIZE];
+    uint16_t bytes_collected = 0;
+    
+    // Echo welcome message
+    const char *welcome = "ESP32-C3 USB Serial Ready\r\n";
+    usb_serial_jtag_write_bytes((const uint8_t*)welcome, strlen(welcome), pdMS_TO_TICKS(100));
+    
+    while (1) {
+        // Read data from USB Serial (only read what we have space for)
+        int bytes_read = 0;
+        if (bytes_collected < BUFFER_SIZE - 1) {
+            bytes_read = usb_serial_jtag_read_bytes(data + bytes_collected, 1, pdMS_TO_TICKS(10));
+        }
+        
+        // If we read any bytes
+        if (bytes_read > 0) {
+            // Echo character immediately so user sees what they type
+            usb_serial_jtag_write_bytes(data + bytes_collected, bytes_read, pdMS_TO_TICKS(10));
+            
+            // Update bytes collected
+            bytes_collected += bytes_read;
+            
+            // Check if the last character is a newline or carriage return
+            if (data[bytes_collected - 1] == '\n' || data[bytes_collected - 1] == '\r' || bytes_collected >= BUFFER_SIZE - 1) {
+                // Null-terminate the string
+                data[bytes_collected] = '\0';
+                
+                // Log the complete message
+                ESP_LOGI(TAG, "Received message (%d bytes): %s", bytes_collected, data);
+                
+                // Send a newline and prompt for next input
+                const char *prompt = "\r\n> ";
+                usb_serial_jtag_write_bytes((const uint8_t*)prompt, strlen(prompt), pdMS_TO_TICKS(100));
+                //
+                // handle input here
+                
+                // Reset the buffer
+                bytes_collected = 0;
+            }
+        }
+        
+        // Small delay to prevent tight looping
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+*/
 
 // TESTING function for more important functionality
 //  - init settings
 //  - start freq sweep
+
 void app_main(void)
 {
-    ESP_LOGI("log", "starting up");
+    printf("starting up\n");
     // init master bus
     i2c_master_bus_handle_t bus_handle;
 
-    //ESP_ERROR_CHECK((&i2c_master_config, bus_handle));
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
 
     // init AD5933
-
     AD5933_init_i2c_device(bus_handle);
 
     // reset
     AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
 
-
-    AD5933_init_settings(30000, INTERNAL_CLOCK_FREQ, 1000, num_incr, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
+    AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, CALIBRATION_NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
     
-    // check to make sure theyre set
-    // uint8_t settings[12];
-    // AD5933_set_ptr_reg(AD5933_REG_CONTROL_HB);
-    // AD5933_read_reg_block(settings, 12);
-    // ESP_LOGI("settings", "\n");
-    // print_uarr(settings, 12);
+    int16_t calib_real[CALIBRATION_NUM_INCR];
+    int16_t calib_imag[CALIBRATION_NUM_INCR];
 
-    signed short real_arr[num_incr];
-    signed short imag_arr[num_incr];
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // start frequency sweep
+    AD5933_start_freq_sweep(calib_real, calib_imag);
+    // calculate gain_factor based on first point recorded
+    gain_factor = gain_factor_calibration(330, calc_magnitude(calib_real[0], calib_imag[0]));
+    // print the gain_factor
+    ESP_LOGI("gain factor", "gainfactor: %f", gain_factor);
 
+    // system phase calibration
+    system_phase_calibration(system_phase_range, calib_real, calib_imag, CALIBRATION_NUM_INCR);
+    ESP_LOGI("system phases", "listed below");
+    print_double_arr(system_phase_range, CALIBRATION_NUM_INCR);
 
-    AD5933_start_freq_sweep(real_arr, imag_arr);
-    double gain_factor = gain_factor_calibration(330, calc_magnitude(real_arr[0], imag_arr[0]));
+    // loop forever collecting values and logging them
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    int16_t real_arr[NUM_INCR];
+    int16_t imag_arr[NUM_INCR];
+
     while (1) {
         AD5933_start_freq_sweep(real_arr, imag_arr);
-
-        // print_arr(real_arr, num_incr);
-        // print_arr(imag_arr, num_incr);
-
-        // do gain factor calculation with first point:
-        
-
-        for (int i = 0; i < num_incr; i ++){
-            ESP_LOGI("log", "real: %d, imag: %d", real_arr[i], imag_arr[i]);
+        for (int i = 0; i < NUM_INCR; i ++){
+            ESP_LOGI("log", "Uncompensated real: %d, imag: %d", real_arr[i], imag_arr[i]);
             double impedance = AD5933_calculate_impedance(gain_factor, real_arr[i], imag_arr[i]);
-            ESP_LOGI("log", "impedance: %f", impedance);
+            ESP_LOGI("log", "impedance magnitude: %f", impedance);
+            
+            // phase calculations
+            bool phase_error;
+            double phase = arctan_phase_angle(real_arr[i], imag_arr[i], &phase_error);
+            double comp_real, comp_imag;
+            compensated_real_and_imag(impedance, phase, system_phase_range[i], &comp_real, &comp_imag);
+            
+            ESP_LOGI("log", "Calculated phase: %f", phase);
+            ESP_LOGI("log", "System phase compensated real: %f, imag: %f", comp_real, comp_imag);
         }
         ESP_LOGI("log",  "Pausing");
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
-
-    // logic analyzer test code
-    // while (1) {
-    //     AD5933_set_reg_value(0x80, 0xAA);
-    //     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    // }
-    //AD5933_init_settings(10,10,10,10);
 
 }
 
-// TODO (separate drivers):
-//  - status LEDS
-//  - check for good contact
+/*
+void HandleSerialInput() {
+    size_t buf_len = 0;
+    uint8_t data[64];
+    size_t data_len;
+
+    int64_t val;
+            data_len = uart_read_bytes(UART_PORT, data, 64, 100);
+            
+        // make sure length read is greater than 0, then do something with it
+        if (data_len > 0) {
+            printf("data received\n");
+            // read data
+            // first 5 characters for operation code, rest for whatever
+            data[data_len] = '\0';
+            // start
+            if (strncmp((char*)data, "start", 5)) {
+                printf("starting freq sweep\n");
+                // AD5933_start_freq_sweep(real, imag);
+                // for (int i = 0; i < NUM_INCR; i ++){
+                //     //ESP_LOGI("log", "real: %d, imag: %d", real[i], imag[i]);
+                //     printf("real: %d, imag: %d\n", real[i], imag[i]);
+                //     double impedance = AD5933_calculate_impedance(gain_factor, real[i], imag[i]);
+                //     //ESP_LOGI("log", "impedance: %f", impedance);
+                //     printf("impedance: %f\n", impedance);
+                // }
+            }
+            // calib <impedance>
+            else if (strncmp((char*)data, "calib", 5)) {
+                
+                // get the impedance value;
+                // calib val
+
+                // val starts at index 6
+                val = strtol((char*)&data[6], NULL, 10);
+                // //ESP_LOGI("Op", "Calibration started with %d", val);
+                printf("Calibration started with %lld\n", val);
+
+                // AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
+                // AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, 1, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
+                // int16_t real, imag;
+                
+                // AD5933_start_freq_sweep(&real, &imag);
+                // gain_factor = gain_factor_calibration(val, calc_magnitude(real, imag));
+
+                // AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
+                // AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
+            }
+            else {
+                printf("invalid input passed\n");
+            }
+        }
+}
+*/
