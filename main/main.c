@@ -1,3 +1,17 @@
+/**
+ * @file
+ * @author Manav B., Eun Be Cha, Blake Hannaford
+ * @version 0.1
+ *
+ * @section DESCRIPTION
+ *
+ * This app will control sensors for the TPT-Finder surgical
+ * sensing pen.   IT is developed for the ESP32 series of processors.
+ * Flexible configurations are provided to drive one sensor only,
+ * a subset of sensors, or (eventually) perform the full 3-sensor
+ * application.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include "sdkconfig.h"
@@ -40,6 +54,12 @@ double system_phase_range[CALIBRATION_NUM_INCR];
 // int16_t real[NUM_INCR];
 // int16_t imag[NUM_INCR];
 
+void HandleSerialInput();
+
+/**
+ * @brief Initial i2c bus configuration for TPT_finder
+ */
+
 i2c_master_bus_config_t i2c_master_config = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
     .i2c_port = I2C_NUM_0,
@@ -49,14 +69,19 @@ i2c_master_bus_config_t i2c_master_config = {
     .flags.enable_internal_pullup = true,
 };
 
-
+/**
+ * @brief tiny wrapper function to clean up FreeRTOS vTaskDelay for easier
+ * typing and reading
+ * @author Blake Hannaford
+ */
 void delayMS(int ms)  // just cleaner, easier to type
 {
         vTaskDelay(ms/portTICK_PERIOD_MS);
 }
 
-void HandleSerialInput();
-
+/**
+ * @brief print an array of uint8_t's
+ */
 void print_uarr(uint8_t* arr, uint8_t n) {
     for (int i = 0; i < n; i++) {
         //ESP_LOGI("arr contents: ", "[%d] = %x", i, arr[i]);
@@ -64,6 +89,9 @@ void print_uarr(uint8_t* arr, uint8_t n) {
     }
 }
 
+/**
+ * @brief print an array of signed short's
+ */
 void print_arr(signed short* arr, uint8_t n) {
     for (int i = 0; i < n; i++) {
         //ESP_LOGI("arr contents: ", "[%d] = %d", i, arr[i]);
@@ -71,12 +99,19 @@ void print_arr(signed short* arr, uint8_t n) {
     }
 }
 
+
+/**
+ * @brief print an array of AD5933 frequencies (uint16_t)
+ */
 void init_freq_arr(uint8_t n, uint16_t start, uint16_t step, uint16_t* arr) {
     for (int i = 0; i < n; i++) {
         arr[i] = start + step * i;
     }
 }
 
+/**
+ * @brief print an array of double precision floats
+ */
 void print_double_arr(double* arr, int n) {
     for (int i = 0; i < n; i++) {
         ESP_LOGI("log", "arr contents: [%d] = %f", i, arr[i]);
@@ -84,6 +119,9 @@ void print_double_arr(double* arr, int n) {
     }
 }
 
+/**
+ * @brief Initialize the AD5933 Impedance measurement chip
+ */
 void chip_init_AD5933(i2c_master_bus_handle_t bhand)
 {   ESP_LOGI("log", "Starting AD5933 Chip Initialization");
     delayMS(500);
@@ -97,6 +135,10 @@ void chip_init_AD5933(i2c_master_bus_handle_t bhand)
     AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, CALIBRATION_NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25) ;
 }
 
+
+/**
+ * @brief Calibrate the AD5933 Impedance measurement chip
+ */
 void  chip_calibrate_AD5933()
 {
     int16_t calib_real[CALIBRATION_NUM_INCR];
@@ -107,18 +149,21 @@ void  chip_calibrate_AD5933()
 
     // start frequency sweep
     AD5933_start_freq_sweep(calib_real, calib_imag);
-    // calculate gain_factor based on first point recorded
+    // calculate gain_factor (a global) based on first point recorded
     gain_factor = gain_factor_calibration(330, calc_magnitude(calib_real[0], calib_imag[0]));
     // print the gain_factor
     ESP_LOGI("        gain factor", "gainfactor: %f", gain_factor);
 
-    // system phase calibration
+    // system phase calibration (system_phase_range, global)
     system_phase_calibration(system_phase_range, calib_real, calib_imag, CALIBRATION_NUM_INCR);
-    ESP_LOGI("        system phases", "listed below");
+    ESP_LOGI("log", "        system phases listed below");
     print_double_arr(system_phase_range, CALIBRATION_NUM_INCR);
-    }
+}
 
 
+/**
+ * @brief A basic "hello world" task.
+ */
 static void hello_task(void *arg)
 {
     int i=0;
@@ -126,13 +171,26 @@ static void hello_task(void *arg)
         delayMS(5000);
         printf("\n\n\n");
         i++;
-        printf("-----------------------------------  Hello world! (BH2 + LED TPT-Finder Hello) (task rep: %d) \n", i);
+        printf("-----------------------------------  Hello world! (TPT-Finder Hello) (task rep: %d) \n", i);
         printf("\n\n\n");
     }
 }
 
+/**
+ * @brief Take measurement with AD5933 Impedance measurement chip:
+ * re-initialize once, then
+ * loop forever collecting values and logging them.
+ */
 static void impedance_task(void *arg)
 {
+
+    // reinitialize after calibration(?)
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    ESP_LOGI("log", "re-initializing AD5933");
+    AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+
     int16_t real_arr[NUM_INCR];
     int16_t imag_arr[NUM_INCR];
      while (1) {
@@ -160,10 +218,14 @@ static void impedance_task(void *arg)
 //  - init settings
 //  - start freq sweep
 
+
+/**
+ * @brief  Entry point for system start
+ */
 void app_main(void)
 {
-    ESP_LOGI("log", " Pausing for user connection: ");
-    delayMS(5000);
+    ESP_LOGI("log", " Pausing for user monitor connection: ");
+    delayMS(3000);
     printf("starting up\n");
     // init master bus
     i2c_master_bus_handle_t bus_handle;
@@ -179,12 +241,7 @@ void app_main(void)
     chip_calibrate_AD5933();
     delayMS(1000);
 
-    // loop forever collecting values and logging them
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-
+    // create/launch the FreeRTOS tasks
     xTaskCreatePinnedToCore(hello_task, "Hello World Task",
                             DEFAULT_STACK,
                             NULL,
@@ -198,7 +255,6 @@ void app_main(void)
                             TASK_PRIO_2,
                             NULL,
                             tskNO_AFFINITY);
-
 }
 
 
