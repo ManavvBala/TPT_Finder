@@ -22,7 +22,7 @@ esp_err_t AD5933_init_i2c_device(i2c_master_bus_handle_t bus_handle){
 
 void AD5933_set_reg_value(uint8_t reg_addr, uint8_t reg_val) {
     uint8_t write_buff[2] = {reg_addr, reg_val};
-    i2c_master_transmit(AD5933_dev_handle, write_buff, 2, -1);
+    ESP_ERROR_CHECK(i2c_master_transmit(AD5933_dev_handle, write_buff, 2, -1));
 }
 
 void AD5933_set_ptr_reg(uint8_t reg_addr){
