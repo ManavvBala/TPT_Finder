@@ -1,0 +1,5 @@
+dependencies:
+  espressif/led_strip: "^2.4.1"
+# UncleRus/hd44780:
+#     path: components/hd44780/
+#     git: https://github.com/UncleRus/esp-idf-lib.git

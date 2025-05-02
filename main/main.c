@@ -26,7 +26,11 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 
-#define I2C_MASTER_SCL_IO 9
+// A demo task to transition through RGB colors on esp32-C6 board (Waveshare)
+#include "LEDColorTask.h"
+#include "LCD_setup.h"
+
+ #define I2C_MASTER_SCL_IO 9
 #define I2C_MASTER_SDA_IO 8
 
 #define MHz_6 6000000
@@ -232,7 +236,15 @@ void app_main(void)
 
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
 
-    ESP_LOGI("log","     Starting chip init");
+    ESP_LOGI("log"," Configuring RGB LED interface");
+    configure_led();
+    delayMS(500);
+
+    ESP_LOGI("log", " Configuring / initing LCD display");
+    LCD_init(LCD_ADDR, SDA_PIN, SCL_PIN, LCD_COLS, LCD_ROWS);
+    delayMS(500);
+
+    ESP_LOGI("log","     Starting Impedance (AD5933) chip init");
     chip_init_AD5933(bus_handle);
     delayMS(2000);
 
@@ -255,6 +267,9 @@ void app_main(void)
                             TASK_PRIO_2,
                             NULL,
                             tskNO_AFFINITY);
+
+    xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
+
 }
 
 
