@@ -28,7 +28,7 @@
 
 // A demo task to transition through RGB colors on esp32-C6 board (Waveshare)
 #include "LEDColorTask.h"
-#include "LCD_setup.h"
+// #include "LCD_setup.h"
 
  #define I2C_MASTER_SCL_IO 9
 #define I2C_MASTER_SDA_IO 8
@@ -49,6 +49,16 @@
 #define DEFAULT_STACK     4096
 #define TASK_PRIO_3         3
 #define TASK_PRIO_2         2
+
+
+//  Configure for hardware Setups
+
+#define RUN_IMPEDANCE  false
+#define RUN_rgbLED     true
+#define RUN_HELLO_WORLD true
+
+// Configure Logging prefix:
+static const char* TAG = "app_main";
 
 
 double gain_factor;
@@ -118,7 +128,7 @@ void init_freq_arr(uint8_t n, uint16_t start, uint16_t step, uint16_t* arr) {
  */
 void print_double_arr(double* arr, int n) {
     for (int i = 0; i < n; i++) {
-        ESP_LOGI("log", "arr contents: [%d] = %f", i, arr[i]);
+        ESP_LOGI(TAG, "arr contents: [%d] = %f", i, arr[i]);
         //printf("arr contents: [%d] = %x\n", i, arr[i]);
     }
 }
@@ -127,7 +137,7 @@ void print_double_arr(double* arr, int n) {
  * @brief Initialize the AD5933 Impedance measurement chip
  */
 void chip_init_AD5933(i2c_master_bus_handle_t bhand)
-{   ESP_LOGI("log", "Starting AD5933 Chip Initialization");
+{   ESP_LOGI(TAG, "Starting AD5933 Chip Initialization");
     delayMS(500);
 
     // init AD5933
@@ -148,7 +158,7 @@ void  chip_calibrate_AD5933()
     int16_t calib_real[CALIBRATION_NUM_INCR];
     int16_t calib_imag[CALIBRATION_NUM_INCR];
 
-    ESP_LOGI("log", "Starting AD5933 Impedance Calibration");
+    ESP_LOGI(TAG, "Starting AD5933 Impedance Calibration");
     vTaskDelay(500 / portTICK_PERIOD_MS);
 
     // start frequency sweep
@@ -160,7 +170,7 @@ void  chip_calibrate_AD5933()
 
     // system phase calibration (system_phase_range, global)
     system_phase_calibration(system_phase_range, calib_real, calib_imag, CALIBRATION_NUM_INCR);
-    ESP_LOGI("log", "        system phases listed below");
+    ESP_LOGI(TAG, "        system phases listed below");
     print_double_arr(system_phase_range, CALIBRATION_NUM_INCR);
 }
 
@@ -190,7 +200,7 @@ static void impedance_task(void *arg)
 
     // reinitialize after calibration(?)
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    ESP_LOGI("log", "re-initializing AD5933");
+    ESP_LOGI(TAG, "re-initializing AD5933");
     AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
@@ -200,9 +210,9 @@ static void impedance_task(void *arg)
      while (1) {
         AD5933_start_freq_sweep(real_arr, imag_arr);
         for (int i = 0; i < NUM_INCR; i ++){
-            ESP_LOGI("log", "Uncompensated real: %d, imag: %d", real_arr[i], imag_arr[i]);
+            ESP_LOGI(TAG, "Uncompensated real: %d, imag: %d", real_arr[i], imag_arr[i]);
             double impedance = AD5933_calculate_impedance(gain_factor, real_arr[i], imag_arr[i]);
-            ESP_LOGI("log", "impedance magnitude: %f", impedance);
+            ESP_LOGI(TAG, "impedance magnitude: %f", impedance);
 
             // phase calculations
             bool phase_error;
@@ -210,10 +220,10 @@ static void impedance_task(void *arg)
             double comp_real, comp_imag;
             compensated_real_and_imag(impedance, phase, system_phase_range[i], &comp_real, &comp_imag);
 
-            ESP_LOGI("log", "Calculated phase: %f", phase);
-            ESP_LOGI("log", "System phase compensated real: %f, imag: %f", comp_real, comp_imag);
+            ESP_LOGI(TAG, "Calculated phase: %f", phase);
+            ESP_LOGI(TAG, "System phase compensated real: %f, imag: %f", comp_real, comp_imag);
         }
-        // ESP_LOGI("log",  "Pausing");
+        // ESP_LOGI(TAG,  "Pausing");
         delayMS(100);
     }
 }
@@ -228,47 +238,65 @@ static void impedance_task(void *arg)
  */
 void app_main(void)
 {
-    ESP_LOGI("log", " Pausing for user monitor connection: ");
+    ESP_LOGI(TAG, " Pausing for user monitor connection: ");
     delayMS(3000);
     printf("starting up\n");
+
+
     // init master bus
     i2c_master_bus_handle_t bus_handle;
-
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
 
-    ESP_LOGI("log"," Configuring RGB LED interface");
-    configure_led();
-    delayMS(500);
 
-    ESP_LOGI("log", " Configuring / initing LCD display");
+/*
+    ESP_LOGI(TAG, " Configuring / initing LCD display");
     LCD_init(LCD_ADDR, SDA_PIN, SCL_PIN, LCD_COLS, LCD_ROWS);
     delayMS(500);
 
-    ESP_LOGI("log","     Starting Impedance (AD5933) chip init");
-    chip_init_AD5933(bus_handle);
-    delayMS(2000);
-
-
-    ESP_LOGI("log","     Starting chip calibrate");
-    chip_calibrate_AD5933();
-    delayMS(1000);
-
+ */
     // create/launch the FreeRTOS tasks
-    xTaskCreatePinnedToCore(hello_task, "Hello World Task",
-                            DEFAULT_STACK,
-                            NULL,
-                            TASK_PRIO_3,
-                            NULL,
-                            tskNO_AFFINITY);
 
-    xTaskCreatePinnedToCore(impedance_task, "Impedance Task",
-                            DEFAULT_STACK,
-                            NULL,
-                            TASK_PRIO_2,
-                            NULL,
-                            tskNO_AFFINITY);
+    if (RUN_HELLO_WORLD){
+        xTaskCreatePinnedToCore(hello_task, "Hello World Task",
+                                DEFAULT_STACK,
+                                NULL,
+                                TASK_PRIO_3,
+                                NULL,
+                                tskNO_AFFINITY);
+    }
 
-    xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
+    if (RUN_rgbLED){
+        ESP_LOGI(TAG," Configuring RGB LED interface");
+        configure_led();
+        delayMS(500);
+        // create/launch color fade rgbLED task
+        xTaskCreatePinnedToCore(LED_task, "rgbLED color fade Task",
+                                DEFAULT_STACK,
+                                NULL,
+                                TASK_PRIO_3,
+                                NULL,
+                                tskNO_AFFINITY);
+    }
+
+    if (RUN_IMPEDANCE) {
+        ESP_LOGI(TAG,"     Starting Impedance (AD5933) chip init");
+        chip_init_AD5933(bus_handle);
+        delayMS(2000);
+
+
+        ESP_LOGI(TAG,"     Starting chip calibrate");
+        chip_calibrate_AD5933();
+        delayMS(1000);
+
+        xTaskCreatePinnedToCore(impedance_task, "Impedance Task",
+                                DEFAULT_STACK,
+                                NULL,
+                                TASK_PRIO_2,
+                                NULL,
+                                tskNO_AFFINITY);
+    }
+
+    // xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
 
 }
 
