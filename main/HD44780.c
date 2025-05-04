@@ -52,6 +52,10 @@ static void LCD_writeNibble(uint8_t nibble, uint8_t mode);
 static void LCD_writeByte(uint8_t data, uint8_t mode);
 static void LCD_pulseEnable(uint8_t nibble);
 
+/*  @note  Modified to use I2C port 1 (I2C_NUM_1) to not conflict
+ * with Bio-Z
+ *    TODO: investigate using one I2C port for both devices
+ */
 static esp_err_t I2C_init(void)
 {
     i2c_config_t conf = {
@@ -62,8 +66,8 @@ static esp_err_t I2C_init(void)
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = 100000
     };
-	i2c_param_config(I2C_NUM_0, &conf);
-	i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+	i2c_param_config(I2C_NUM_1, &conf);
+	i2c_driver_install(I2C_NUM_1, I2C_MODE_MASTER, 0, 0, 0);
     return ESP_OK;
 }
 

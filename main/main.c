@@ -100,14 +100,14 @@ i2c_master_bus_config_t i2c_master_config_BioZ = {
  *          (initially using different i2c controller and pins)
  */
 
-i2c_master_bus_config_t i2c_master_config_BioZ = {
+i2c_master_bus_config_t i2c_master_config_LCD = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
     .i2c_port = I2C_LCD_Port,
     .scl_io_num = I2C_LCD_SCL_IO,
     .sda_io_num = I2C_LCD_SDA_IO,
     .glitch_ignore_cnt = 7,
     .flags.enable_internal_pullup = true,
-};
+}
 
 /**
  * @brief tiny wrapper function to clean up FreeRTOS vTaskDelay for easier
@@ -269,20 +269,20 @@ void app_main(void)
     printf("starting up\n");
 
 
-    // init master bus
-    i2c_master_bus_handle_t bus_handle;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
-
 
         // create/launch the FreeRTOS tasks
 
     if (RUN_LCD_TASK) {
-    ESP_LOGI(TAG, " Configuring / initing LCD display");
-    LCD_init(LCD_ADDR, SDA_PIN, SCL_PIN, LCD_COLS, LCD_ROWS);
-    delayMS(500);
+        // init master bus (LCD Version)    ** this is done by the HD44780 code
+        // i2c_master_bus_handle_t bh_LCD;
+        // ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_LCD, &bh_LCD));
 
-    xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
-    }
+        ESP_LOGI(TAG, " Configuring / initing LCD display");
+        LCD_init(LCD_ADDR, I2C_LCD_SDA_IO, I2C_LCD_SCL_IO, LCD_COLS, LCD_ROWS, &bh_LCD);
+        delayMS(500);
+
+        xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
+        }
 
     if (RUN_HELLO_WORLD){
         xTaskCreatePinnedToCore(hello_task, "Hello World Task",
@@ -307,6 +307,10 @@ void app_main(void)
     }
 
     if (RUN_IMPEDANCE) {
+        // init master bus (BioZ Version)
+        i2c_master_bus_handle_t bus_handle;
+        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_BioZ, &bus_handle));
+
         ESP_LOGI(TAG,"     Starting Impedance (AD5933) chip init");
         chip_init_AD5933(bus_handle);
         delayMS(2000);
