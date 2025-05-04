@@ -1,291 +1,178 @@
-/*
- * Copyright (c) 2016 Ruslan V. Uss <unclerus@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- * 3. Neither the name of the copyright holder nor the names of itscontributors
- *    may be used to endorse or promote products derived from this software without
- *    specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+#include <driver/i2c.h>
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <stdio.h>
+#include "sdkconfig.h"
+#include "rom/ets_sys.h"
+#include <esp_log.h>
 
-/**
- * @file hd44780.c
- *
- * ESP-IDF driver for HD44780 compatible LCD text displays
- *
- * Ported from esp-open-rtos
- *
- * Copyright (c) 2016 Ruslan V. Uss <unclerus@gmail.com>
- *
- * BSD Licensed as described in the file LICENSE
- */
-#include <string.h>
-#include <esp_system.h>
-#include <esp_idf_lib_helpers.h>
-#include <ets_sys.h>
-#include "hd44780.h"
+// LCD module defines
+#define LCD_LINEONE             0x00        // start of line 1
+#define LCD_LINETWO             0x40        // start of line 2
+#define LCD_LINETHREE           0x14        // start of line 3
+#define LCD_LINEFOUR            0x54        // start of line 4
 
-#define MS 1000
+#define LCD_BACKLIGHT           0x08
+#define LCD_ENABLE              0x04               
+#define LCD_COMMAND             0x00
+#define LCD_WRITE               0x01
 
-#define BV(x) (1 << (x))
-#define GPIO_BIT(x) (1ULL << (x))
+#define LCD_SET_DDRAM_ADDR      0x80
+#define LCD_READ_BF             0x40
 
-#define DELAY_CMD_LONG  (3 * MS) // >1.53ms according to datasheet
-#define DELAY_CMD_SHORT (60)     // >39us according to datasheet
-#define DELAY_TOGGLE    (1)      // E cycle time >= 1μs, E pulse width >= 450ns, Data set-up time >= 195ns
-#define DELAY_INIT      (5 * MS)
+// LCD instructions
+#define LCD_CLEAR               0x01        // replace all characters with ASCII 'space'
+#define LCD_HOME                0x02        // return cursor to first position on first line
+#define LCD_ENTRY_MODE          0x06        // shift cursor from left to right on read/write
+#define LCD_DISPLAY_OFF         0x08        // turn display off
+#define LCD_DISPLAY_ON          0x0C        // display on, cursor off, don't blink character
+#define LCD_FUNCTION_RESET      0x30        // reset the LCD
+#define LCD_FUNCTION_SET_4BIT   0x28        // 4-bit data, 2-line display, 5 x 7 font
+#define LCD_SET_CURSOR          0x80        // set cursor position
 
-#define CMD_CLEAR        0x01
-#define CMD_RETURN_HOME  0x02
-#define CMD_ENTRY_MODE   0x04
-#define CMD_DISPLAY_CTRL 0x08
-#define CMD_SHIFT        0x10
-#define CMD_FUNC_SET     0x20
-#define CMD_CGRAM_ADDR   0x40
-#define CMD_DDRAM_ADDR   0x80
+// Pin mappings
+// P0 -> RS
+// P1 -> RW
+// P2 -> E
+// P3 -> Backlight
+// P4 -> D4
+// P5 -> D5
+// P6 -> D6
+// P7 -> D7
 
-#define ARG_MOVE_RIGHT 0x04
-#define ARG_MOVE_LEFT 0x00
-#define CMD_SHIFT_LEFT  (CMD_SHIFT | CMD_DISPLAY_CTRL | ARG_MOVE_LEFT)
-#define CMD_SHIFT_RIGHT (CMD_SHIFT | CMD_DISPLAY_CTRL | ARG_MOVE_RIGHT)
+static char tag[] = "LCD Driver";
+static uint8_t LCD_addr;
+static uint8_t SDA_pin;
+static uint8_t SCL_pin;
+static uint8_t LCD_cols;
+static uint8_t LCD_rows;
 
-// CMD_ENTRY_MODE
-#define ARG_EM_INCREMENT    BV(1)
-#define ARG_EM_SHIFT        (1)
+static void LCD_writeNibble(uint8_t nibble, uint8_t mode);
+static void LCD_writeByte(uint8_t data, uint8_t mode);
+static void LCD_pulseEnable(uint8_t nibble);
 
-// CMD_DISPLAY_CTRL
-#define ARG_DC_DISPLAY_ON   BV(2)
-#define ARG_DC_CURSOR_ON    BV(1)
-#define ARG_DC_CURSOR_BLINK (1)
-
-// CMD_FUNC_SET
-#define ARG_FS_8_BIT        BV(4)
-#define ARG_FS_2_LINES      BV(3)
-#define ARG_FS_FONT_5X10    BV(2)
-
-#define init_delay()   do { ets_delay_us(DELAY_INIT); } while (0)
-#define short_delay()  do { ets_delay_us(DELAY_CMD_SHORT); } while (0)
-#define long_delay()   do { ets_delay_us(DELAY_CMD_LONG); } while (0)
-#define toggle_delay() do { ets_delay_us(DELAY_TOGGLE); } while (0)
-
-#define CHECK_ARG(VAL) do { if (!(VAL)) return ESP_ERR_INVALID_ARG; } while (0)
-#define CHECK(x) do { esp_err_t __; if ((__ = x) != ESP_OK) return __; } while (0)
-
-static const uint8_t line_addr[] = { 0x00, 0x40, 0x14, 0x54 };
-
-static esp_err_t write_nibble(const hd44780_t *lcd, uint8_t b, bool rs)
+static esp_err_t I2C_init(void)
 {
-    if (lcd->write_cb)
-    {
-        uint8_t data = (((b >> 3) & 1) << lcd->pins.d7)
-                     | (((b >> 2) & 1) << lcd->pins.d6)
-                     | (((b >> 1) & 1) << lcd->pins.d5)
-                     | ((b & 1) << lcd->pins.d4)
-                     | (rs ? 1 << lcd->pins.rs : 0)
-                     | (lcd->backlight ? 1 << lcd->pins.bl : 0);
-        CHECK(lcd->write_cb(lcd, data | (1 << lcd->pins.e)));
-        toggle_delay();
-        CHECK(lcd->write_cb(lcd, data));
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = SDA_pin,
+        .scl_io_num = SCL_pin,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 100000
+    };
+	i2c_param_config(I2C_NUM_0, &conf);
+	i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
+    return ESP_OK;
+}
+
+void LCD_init(uint8_t addr, uint8_t dataPin, uint8_t clockPin, uint8_t cols, uint8_t rows)
+{
+    LCD_addr = addr;
+    SDA_pin = dataPin;
+    SCL_pin = clockPin;
+    LCD_cols = cols;
+    LCD_rows = rows;
+    I2C_init();
+    vTaskDelay(100 / portTICK_RATE_MS);                                 // Initial 40 mSec delay
+
+    // Reset the LCD controller
+    LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // First part of reset sequence
+    vTaskDelay(10 / portTICK_RATE_MS);                                  // 4.1 mS delay (min)
+    LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // second part of reset sequence
+    ets_delay_us(200);                                                  // 100 uS delay (min)
+    LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // Third time's a charm
+    LCD_writeNibble(LCD_FUNCTION_SET_4BIT, LCD_COMMAND);                // Activate 4-bit mode
+    ets_delay_us(80);                                                   // 40 uS delay (min)
+
+    // --- Busy flag now available ---
+    // Function Set instruction
+    LCD_writeByte(LCD_FUNCTION_SET_4BIT, LCD_COMMAND);                  // Set mode, lines, and font
+    ets_delay_us(80); 
+
+    // Clear Display instruction
+    LCD_writeByte(LCD_CLEAR, LCD_COMMAND);                              // clear display RAM
+    vTaskDelay(2 / portTICK_RATE_MS);                                   // Clearing memory takes a bit longer
+    
+    // Entry Mode Set instruction
+    LCD_writeByte(LCD_ENTRY_MODE, LCD_COMMAND);                         // Set desired shift characteristics
+    ets_delay_us(80); 
+
+    LCD_writeByte(LCD_DISPLAY_ON, LCD_COMMAND);                         // Ensure LCD is set to on
+}
+
+void LCD_setCursor(uint8_t col, uint8_t row)
+{
+    if (row > LCD_rows - 1) {
+        ESP_LOGE(tag, "Cannot write to row %d. Please select a row in the range (0, %d)", row, LCD_rows-1);
+        row = LCD_rows - 1;
     }
-    else
-    {
-        CHECK(gpio_set_level(lcd->pins.rs, rs));
-        ets_delay_us(1); // Address Setup time >= 60ns.
-        CHECK(gpio_set_level(lcd->pins.e, true));
-        CHECK(gpio_set_level(lcd->pins.d7, (b >> 3) & 1));
-        CHECK(gpio_set_level(lcd->pins.d6, (b >> 2) & 1));
-        CHECK(gpio_set_level(lcd->pins.d5, (b >> 1) & 1));
-        CHECK(gpio_set_level(lcd->pins.d4, b & 1));
-        toggle_delay();
-        CHECK(gpio_set_level(lcd->pins.e, false));
+    uint8_t row_offsets[] = {LCD_LINEONE, LCD_LINETWO, LCD_LINETHREE, LCD_LINEFOUR};
+    LCD_writeByte(LCD_SET_DDRAM_ADDR | (col + row_offsets[row]), LCD_COMMAND);
+}
+
+void LCD_writeChar(char c)
+{
+    LCD_writeByte(c, LCD_WRITE);                                        // Write data to DDRAM
+}
+
+void LCD_writeStr(char* str)
+{
+    while (*str) {
+        LCD_writeChar(*str++);
     }
-
-    return ESP_OK;
 }
 
-static esp_err_t write_byte(const hd44780_t *lcd, uint8_t b, bool rs)
+void LCD_home(void)
 {
-    CHECK(write_nibble(lcd, b >> 4, rs));
-    CHECK(write_nibble(lcd, b, rs));
-
-    return ESP_OK;
+    LCD_writeByte(LCD_HOME, LCD_COMMAND);
+    vTaskDelay(2 / portTICK_RATE_MS);                                   // This command takes a while to complete
 }
 
-esp_err_t hd44780_init(const hd44780_t *lcd)
+void LCD_clearScreen(void)
 {
-    CHECK_ARG(lcd && lcd->lines > 0 && lcd->lines < 5);
-
-    if (!lcd->write_cb)
-    {
-        gpio_config_t io_conf;
-        memset(&io_conf, 0, sizeof(gpio_config_t));
-        io_conf.mode = GPIO_MODE_OUTPUT;
-        io_conf.pin_bit_mask =
-                GPIO_BIT(lcd->pins.rs) |
-                GPIO_BIT(lcd->pins.e) |
-                GPIO_BIT(lcd->pins.d4) |
-                GPIO_BIT(lcd->pins.d5) |
-                GPIO_BIT(lcd->pins.d6) |
-                GPIO_BIT(lcd->pins.d7);
-        if (lcd->pins.bl != HD44780_NOT_USED)
-            io_conf.pin_bit_mask |= GPIO_BIT(lcd->pins.bl);
-        CHECK(gpio_config(&io_conf));
-    }
-
-    // switch to 4 bit mode
-    for (uint8_t i = 0; i < 3; i ++)
-    {
-        CHECK(write_nibble(lcd, (CMD_FUNC_SET | ARG_FS_8_BIT) >> 4, false));
-        init_delay();
-    }
-    CHECK(write_nibble(lcd, CMD_FUNC_SET >> 4, false));
-    short_delay();
-
-    // Specify the number of display lines and character font
-    CHECK(write_byte(lcd,
-        CMD_FUNC_SET
-            | (lcd->lines > 1 ? ARG_FS_2_LINES : 0)
-            | (lcd->font == HD44780_FONT_5X10 ? ARG_FS_FONT_5X10 : 0),
-        false));
-    short_delay();
-    // Display off
-    CHECK(hd44780_control(lcd, false, false, false));
-    // Clear
-    CHECK(hd44780_clear(lcd));
-    // Entry mode set
-    CHECK(write_byte(lcd, CMD_ENTRY_MODE | ARG_EM_INCREMENT, false));
-    short_delay();
-    // Display on
-    CHECK(hd44780_control(lcd, true, false, false));
-
-    return ESP_OK;
+    LCD_writeByte(LCD_CLEAR, LCD_COMMAND);
+    vTaskDelay(2 / portTICK_RATE_MS);                                   // This command takes a while to complete
 }
 
-esp_err_t hd44780_control(const hd44780_t *lcd, bool on, bool cursor, bool cursor_blink)
+static void LCD_writeNibble(uint8_t nibble, uint8_t mode)
 {
-    CHECK_ARG(lcd);
+    uint8_t data = (nibble & 0xF0) | mode | LCD_BACKLIGHT;
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, data, 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);   
 
-    CHECK(write_byte(lcd,
-        CMD_DISPLAY_CTRL
-            | (on ? ARG_DC_DISPLAY_ON : 0)
-            | (cursor ? ARG_DC_CURSOR_ON : 0)
-            | (cursor_blink ? ARG_DC_CURSOR_BLINK : 0),
-        false));
-    short_delay();
-
-    return ESP_OK;
+    LCD_pulseEnable(data);                                              // Clock data into LCD
 }
 
-esp_err_t hd44780_clear(const hd44780_t *lcd)
+static void LCD_writeByte(uint8_t data, uint8_t mode)
 {
-    CHECK_ARG(lcd);
-
-    CHECK(write_byte(lcd, CMD_CLEAR, false));
-    long_delay();
-
-    return ESP_OK;
+    LCD_writeNibble(data & 0xF0, mode);
+    LCD_writeNibble((data << 4) & 0xF0, mode);
 }
 
-esp_err_t hd44780_gotoxy(const hd44780_t *lcd, uint8_t col, uint8_t line)
+static void LCD_pulseEnable(uint8_t data)
 {
-    CHECK_ARG(lcd && line < lcd->lines && line < sizeof(line_addr));
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, data | LCD_ENABLE, 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);  
+    ets_delay_us(1);
 
-    CHECK(write_byte(lcd, CMD_DDRAM_ADDR + line_addr[line] + col, false));
-    short_delay();
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_putc(const hd44780_t *lcd, char c)
-{
-    CHECK_ARG(lcd);
-
-    CHECK(write_byte(lcd, c, true));
-    short_delay();
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_puts(const hd44780_t *lcd, const char *s)
-{
-    CHECK_ARG(lcd && s);
-
-    while (*s)
-    {
-        CHECK(hd44780_putc(lcd, *s));
-        s++;
-    }
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_switch_backlight(hd44780_t *lcd, bool on)
-{
-    CHECK_ARG(lcd);
-    if (lcd->pins.bl == HD44780_NOT_USED)
-        return ESP_ERR_NOT_SUPPORTED;
-
-    if (!lcd->write_cb)
-        CHECK(gpio_set_level(lcd->pins.bl, on));
-    else
-        CHECK(lcd->write_cb(lcd, on ? BV(lcd->pins.bl) : 0));
-
-    lcd->backlight = on;
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_upload_character(const hd44780_t *lcd, uint8_t num, const uint8_t *data)
-{
-    CHECK_ARG(lcd && data && num < 8);
-
-    uint8_t bytes = lcd->font == HD44780_FONT_5X8 ? 8 : 10;
-    CHECK(write_byte(lcd, CMD_CGRAM_ADDR + num * bytes, false));
-    short_delay();
-    for (uint8_t i = 0; i < bytes; i ++)
-    {
-        CHECK(write_byte(lcd, data[i], true));
-        short_delay();
-    }
-
-    CHECK(hd44780_gotoxy(lcd, 0, 0));
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_scroll_left(const hd44780_t *lcd)
-{
-    CHECK_ARG(lcd);
-
-    CHECK(write_byte(lcd, CMD_SHIFT_LEFT, false));
-    short_delay();
-
-    return ESP_OK;
-}
-
-esp_err_t hd44780_scroll_right(const hd44780_t *lcd)
-{
-    CHECK_ARG(lcd);
-
-    CHECK(write_byte(lcd, CMD_SHIFT_RIGHT, false));
-    short_delay();
-
-    return ESP_OK;
+    cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (data & ~LCD_ENABLE), 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);
+    ets_delay_us(500);
 }
