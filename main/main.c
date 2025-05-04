@@ -28,10 +28,21 @@
 
 // A demo task to transition through RGB colors on esp32-C6 board (Waveshare)
 #include "LEDColorTask.h"
-// #include "LCD_setup.h"
+#include "LCD_setup.h"
 
- #define I2C_MASTER_SCL_IO 9
-#define I2C_MASTER_SDA_IO 8
+/* Config for BioZ i2c pinout
+ */
+#define I2C_BioZ_SCL_IO 9
+#define I2C_BioZ_SDA_IO 8
+#define I2C_BioZ_Port     I2C_NUM_0
+
+/* Config for LCD Drive i2c pinout
+ *
+#define I2C_LCD_SDA_IO 0   # taken from LCD_setup.h for reference here
+#define I2C_LCD_SCL_IO 1
+*/
+#define I2C_LCD_Port      I2C_NUM_1
+
 
 #define MHz_6 6000000
 #define INTERNAL_CLOCK_FREQ 16000000
@@ -56,6 +67,7 @@
 #define RUN_IMPEDANCE  false
 #define RUN_rgbLED     true
 #define RUN_HELLO_WORLD true
+#define RUN_LCD_TASK     true
 
 // Configure Logging prefix:
 static const char* TAG = "app_main";
@@ -71,14 +83,28 @@ double system_phase_range[CALIBRATION_NUM_INCR];
 void HandleSerialInput();
 
 /**
- * @brief Initial i2c bus configuration for TPT_finder
+ * @brief Initial i2c bus configuration for TPT_finder BioZ function
  */
 
-i2c_master_bus_config_t i2c_master_config = {
+i2c_master_bus_config_t i2c_master_config_BioZ = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
-    .i2c_port = I2C_NUM_0,
-    .scl_io_num = I2C_MASTER_SCL_IO,
-    .sda_io_num = I2C_MASTER_SDA_IO,
+    .i2c_port = I2C_BioZ_Port,
+    .scl_io_num = I2C_BioZ_SCL_IO,
+    .sda_io_num = I2C_BioZ_SDA_IO,
+    .glitch_ignore_cnt = 7,
+    .flags.enable_internal_pullup = true,
+}
+
+/**
+ * @brief  i2c bus configuration for TPT_finder LCD Display function
+ *          (initially using different i2c controller and pins)
+ */
+
+i2c_master_bus_config_t i2c_master_config_BioZ = {
+    .clk_source = I2C_CLK_SRC_DEFAULT,
+    .i2c_port = I2C_LCD_Port,
+    .scl_io_num = I2C_LCD_SCL_IO,
+    .sda_io_num = I2C_LCD_SDA_IO,
     .glitch_ignore_cnt = 7,
     .flags.enable_internal_pullup = true,
 };
@@ -248,13 +274,15 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
 
 
-/*
+        // create/launch the FreeRTOS tasks
+
+    if (RUN_LCD_TASK) {
     ESP_LOGI(TAG, " Configuring / initing LCD display");
     LCD_init(LCD_ADDR, SDA_PIN, SCL_PIN, LCD_COLS, LCD_ROWS);
     delayMS(500);
 
- */
-    // create/launch the FreeRTOS tasks
+    xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
+    }
 
     if (RUN_HELLO_WORLD){
         xTaskCreatePinnedToCore(hello_task, "Hello World Task",
@@ -296,7 +324,7 @@ void app_main(void)
                                 tskNO_AFFINITY);
     }
 
-    // xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
+    //
 
 }
 
