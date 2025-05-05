@@ -30,27 +30,23 @@
 #include "LEDColorTask.h"
 #include "LCD_setup.h"
 
-/* Config for BioZ i2c pinout
+/* Config for i2c pinout
+ *      (one i2c setup for all
+ *        sensors )
  */
-#define I2C_BioZ_SCL_IO 9
-#define I2C_BioZ_SDA_IO 8
-#define I2C_BioZ_Port     I2C_NUM_0
-
-/* Config for LCD Drive i2c pinout
- *
-#define I2C_LCD_SDA_IO 0   # taken from LCD_setup.h for reference here
-#define I2C_LCD_SCL_IO 1
-*/
-#define I2C_LCD_Port      I2C_NUM_1
+#define I2C_SENSORS_SCL_IO 0    //   (Embedded Team 9)
+#define I2C_SENSORS_SDA_IO 1    //   (Embedded Team 8)
+#define I2C_SENSORS_Peripheral_Port     I2C_NUM_0
 
 
-#define MHz_6 6000000
+
+#define MHz_6                6000000
 #define INTERNAL_CLOCK_FREQ 16000000
 
 // AD5933 Impedance Measurement Setups
-#define START_FREQ 30000
-#define NUM_INCR 3
-#define FREQ_INCR 1000
+#define START_FREQ   30000
+#define NUM_INCR         3
+#define FREQ_INCR     1000
 
 #define CALIBRATION_NUM_INCR 3
 
@@ -61,12 +57,15 @@
 #define TASK_PRIO_3         3
 #define TASK_PRIO_2         2
 
+/****************************************
+ *
+ *      Configure for hardware Setups
+ *
+ */
 
-//  Configure for hardware Setups
-
-#define RUN_IMPEDANCE  false
-#define RUN_rgbLED     true
-#define RUN_HELLO_WORLD true
+#define RUN_BioZ         false
+#define RUN_rgbLED       true
+#define RUN_HELLO_WORLD  false
 #define RUN_LCD_TASK     true
 
 // Configure Logging prefix:
@@ -83,39 +82,28 @@ double system_phase_range[CALIBRATION_NUM_INCR];
 void HandleSerialInput();
 
 /**
- * @brief Initial i2c bus configuration for TPT_finder BioZ function
+ * @brief i2c bus configuration for all TPT_finder i2c sensors.
+ * One "port" (i.e. the I2C peripheral (not LP I2C))
+ *
+ *    Select the right sensor using i2c address
+ *
  */
-
 i2c_master_bus_config_t i2c_master_config_BioZ = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
-    .i2c_port = I2C_BioZ_Port,
-    .scl_io_num = I2C_BioZ_SCL_IO,
-    .sda_io_num = I2C_BioZ_SDA_IO,
+    .i2c_port =   I2C_SENSORS_Peripheral_Port,
+    .scl_io_num = I2C_SENSORS_SCL_IO,
+    .sda_io_num = I2C_SENSORS_SDA_IO,
     .glitch_ignore_cnt = 7,
-    .flags.enable_internal_pullup = true,
-}
+    .flags.enable_internal_pullup = 1
+};
 
-/**
- * @brief  i2c bus configuration for TPT_finder LCD Display function
- *          (initially using different i2c controller and pins)
- */
 
-i2c_master_bus_config_t i2c_master_config_LCD = {
-    .clk_source = I2C_CLK_SRC_DEFAULT,
-    .i2c_port = I2C_LCD_Port,
-    .scl_io_num = I2C_LCD_SCL_IO,
-    .sda_io_num = I2C_LCD_SDA_IO,
-    .glitch_ignore_cnt = 7,
-    .flags.enable_internal_pullup = true,
-}
-
-/**
+/*
  * @brief tiny wrapper function to clean up FreeRTOS vTaskDelay for easier
  * typing and reading
  * @author Blake Hannaford
  */
-void delayMS(int ms)  // just cleaner, easier to type
-{
+void delayMS(int ms) {
         vTaskDelay(ms/portTICK_PERIOD_MS);
 }
 
@@ -268,9 +256,11 @@ void app_main(void)
     delayMS(3000);
     printf("starting up\n");
 
-
-
-        // create/launch the FreeRTOS tasks
+    /*
+     *
+     * create/launch the FreeRTOS tasks
+     *
+     */
 
     if (RUN_LCD_TASK) {
         // init master bus (LCD Version)    ** this is done by the HD44780 code
@@ -278,11 +268,13 @@ void app_main(void)
         // ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_LCD, &bh_LCD));
 
         ESP_LOGI(TAG, " Configuring / initing LCD display");
-        LCD_init(LCD_ADDR, I2C_LCD_SDA_IO, I2C_LCD_SCL_IO, LCD_COLS, LCD_ROWS, &bh_LCD);
+        LCD_init(LCD_ADDR, I2C_SENSORS_SDA_IO, I2C_SENSORS_SCL_IO, LCD_COLS, LCD_ROWS);
         delayMS(500);
 
         xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);
         }
+
+
 
     if (RUN_HELLO_WORLD){
         xTaskCreatePinnedToCore(hello_task, "Hello World Task",
@@ -306,7 +298,7 @@ void app_main(void)
                                 tskNO_AFFINITY);
     }
 
-    if (RUN_IMPEDANCE) {
+    if (RUN_BioZ) {
         // init master bus (BioZ Version)
         i2c_master_bus_handle_t bus_handle;
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_BioZ, &bus_handle));
