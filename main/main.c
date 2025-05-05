@@ -88,13 +88,13 @@ void HandleSerialInput();
  *    Select the right sensor using i2c address
  *
  */
-i2c_master_bus_config_t i2c_master_config_BioZ = {
+i2c_master_bus_config_t i2c_master_config_sensors = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
     .i2c_port =   I2C_SENSORS_Peripheral_Port,
     .scl_io_num = I2C_SENSORS_SCL_IO,
     .sda_io_num = I2C_SENSORS_SDA_IO,
     .glitch_ignore_cnt = 7,
-    .flags.enable_internal_pullup = 1
+    .flags.enable_internal_pullup = true
 };
 
 
@@ -256,6 +256,16 @@ void app_main(void)
     delayMS(3000);
     printf("starting up\n");
 
+
+    /*
+     *  Configure the i2c bus for all sensors
+     *
+     */
+
+    i2c_master_bus_handle_t bus_handle;
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_sensors, &bus_handle));
+
+
     /*
      *
      * create/launch the FreeRTOS tasks
@@ -300,8 +310,11 @@ void app_main(void)
 
     if (RUN_BioZ) {
         // init master bus (BioZ Version)
-        i2c_master_bus_handle_t bus_handle;
-        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_BioZ, &bus_handle));
+        /* we will now init the i2c bus ONCE for all devices (above)
+         *
+         */
+        //i2c_master_bus_handle_t bus_handle;
+        //ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config_BioZ, &bus_handle));
 
         ESP_LOGI(TAG,"     Starting Impedance (AD5933) chip init");
         chip_init_AD5933(bus_handle);

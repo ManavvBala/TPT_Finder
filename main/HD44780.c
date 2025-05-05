@@ -1,4 +1,4 @@
-#include <driver/i2c.h>
+#include <driver/i2c_master.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -53,8 +53,7 @@ static void LCD_writeByte(uint8_t data, uint8_t mode);
 static void LCD_pulseEnable(uint8_t nibble);
 
 /*  @note  Modified to use I2C port 1 (I2C_NUM_1) to not conflict
- * with Bio-Z
- *    TODO: investigate using one I2C port for both devices
+ * with Bio-Z -- no using one I2C port for both devices
  */
 static esp_err_t I2C_init(void)
 {
@@ -78,7 +77,10 @@ void LCD_init(uint8_t addr, uint8_t dataPin, uint8_t clockPin, uint8_t cols, uin
     SCL_pin = clockPin;
     LCD_cols = cols;
     LCD_rows = rows;
-    I2C_init();
+
+    // Now main code will initialize i2c   BH: 5/5/25
+    // I2C_init();
+
     vTaskDelay(100 / portTICK_PERIOD_MS);                                 // Initial 40 mSec delay
 
     // Reset the LCD controller

@@ -1,0 +1,44 @@
+#include "freertos/semphr.h"
+
+// Global semaphore handle
+SemaphoreHandle_t i2c_mutex;
+
+// Initialize the mutex in your init function
+i2c_mutex = xSemaphoreCreateMutex();
+if (i2c_mutex == NULL) {
+    ESP_LOGE(TAG, "Failed to create mutex");
+    return ESP_ERR_NO_MEM;
+}
+
+// Task 1 example
+void task1(void *pvParameters) {
+    while (1) {
+        // Take mutex before using I2C
+        if (xSemaphoreTake(i2c_mutex, portMAX_DELAY) == pdTRUE) {
+            // Perform I2C operations with device 1
+            uint8_t data[10];
+            i2c_master_receive(dev_handle1, data, sizeof(data), pdMS_TO_TICKS(100));
+            
+            // Release mutex when done
+            xSemaphoreGive(i2c_mutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Task 2 example
+void task2(void *pvParameters) {
+    while (1) {
+        // Take mutex before using I2C
+        if (xSemaphoreTake(i2c_mutex, portMAX_DELAY) == pdTRUE) {
+            // Perform I2C operations with device 2
+            uint8_t cmd = 0x42;
+            uint8_t data[5];
+            i2c_master_transmit_receive(dev_handle2, &cmd, 1, data, sizeof(data), pdMS_TO_TICKS(100));
+            
+            // Release mutex when done
+            xSemaphoreGive(i2c_mutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
