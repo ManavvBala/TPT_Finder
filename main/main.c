@@ -12,14 +12,21 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 
-#define I2C_MASTER_SCL_IO 9
-#define I2C_MASTER_SDA_IO 8
+
+/*
+ *   Set up correct i2c pins on esp32 version
+ */
+//#define I2C_MASTER_SCL_IO 9  // for old esp32 board
+//#define I2C_MASTER_SDA_IO 8
+#define I2C_MASTER_SCL_IO 22  // for new esp32c6 board
+#define I2C_MASTER_SDA_IO 21 
+
 
 #define MHz_6 6000000
 #define INTERNAL_CLOCK_FREQ 16000000
 
 #define START_FREQ 30000
-#define NUM_INCR 3
+#define NUM_INCR 1
 #define FREQ_INCR 1000
 
 #define CALIBRATION_NUM_INCR 3
@@ -151,7 +158,8 @@ void app_main(void)
 
     // reset
     AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
-
+    
+    // init calibration settings
     AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, CALIBRATION_NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
     
     int16_t calib_real[CALIBRATION_NUM_INCR];
@@ -161,7 +169,7 @@ void app_main(void)
     // start frequency sweep
     AD5933_start_freq_sweep(calib_real, calib_imag);
     // calculate gain_factor based on first point recorded
-    gain_factor = gain_factor_calibration(330, calc_magnitude(calib_real[0], calib_imag[0]));
+    gain_factor = gain_factor_calibration(2200, calc_magnitude(calib_real[0], calib_imag[0]));
     // print the gain_factor
     ESP_LOGI("gain factor", "gainfactor: %f", gain_factor);
 
@@ -169,6 +177,7 @@ void app_main(void)
     system_phase_calibration(system_phase_range, calib_real, calib_imag, CALIBRATION_NUM_INCR);
     ESP_LOGI("system phases", "listed below");
     print_double_arr(system_phase_range, CALIBRATION_NUM_INCR);
+    // done with calibration
 
     // loop forever collecting values and logging them
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -179,6 +188,7 @@ void app_main(void)
     int16_t imag_arr[NUM_INCR];
 
     while (1) {
+        ESP_LOGI("log", "Starting new sweep");
         AD5933_start_freq_sweep(real_arr, imag_arr);
         for (int i = 0; i < NUM_INCR; i ++){
             ESP_LOGI("log", "Uncompensated real: %d, imag: %d", real_arr[i], imag_arr[i]);
@@ -195,62 +205,7 @@ void app_main(void)
             ESP_LOGI("log", "System phase compensated real: %f, imag: %f", comp_real, comp_imag);
         }
         ESP_LOGI("log",  "Pausing");
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
 }
-
-/*
-void HandleSerialInput() {
-    size_t buf_len = 0;
-    uint8_t data[64];
-    size_t data_len;
-
-    int64_t val;
-            data_len = uart_read_bytes(UART_PORT, data, 64, 100);
-            
-        // make sure length read is greater than 0, then do something with it
-        if (data_len > 0) {
-            printf("data received\n");
-            // read data
-            // first 5 characters for operation code, rest for whatever
-            data[data_len] = '\0';
-            // start
-            if (strncmp((char*)data, "start", 5)) {
-                printf("starting freq sweep\n");
-                // AD5933_start_freq_sweep(real, imag);
-                // for (int i = 0; i < NUM_INCR; i ++){
-                //     //ESP_LOGI("log", "real: %d, imag: %d", real[i], imag[i]);
-                //     printf("real: %d, imag: %d\n", real[i], imag[i]);
-                //     double impedance = AD5933_calculate_impedance(gain_factor, real[i], imag[i]);
-                //     //ESP_LOGI("log", "impedance: %f", impedance);
-                //     printf("impedance: %f\n", impedance);
-                // }
-            }
-            // calib <impedance>
-            else if (strncmp((char*)data, "calib", 5)) {
-                
-                // get the impedance value;
-                // calib val
-
-                // val starts at index 6
-                val = strtol((char*)&data[6], NULL, 10);
-                // //ESP_LOGI("Op", "Calibration started with %d", val);
-                printf("Calibration started with %lld\n", val);
-
-                // AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
-                // AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, 1, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
-                // int16_t real, imag;
-                
-                // AD5933_start_freq_sweep(&real, &imag);
-                // gain_factor = gain_factor_calibration(val, calc_magnitude(real, imag));
-
-                // AD5933_set_reg_value(AD5933_REG_CONTROL_LB, 0x18);
-                // AD5933_init_settings(START_FREQ, INTERNAL_CLOCK_FREQ, FREQ_INCR, NUM_INCR, AD5933_RANGE_2000mVpp, AD5933_PGA_1, 25);
-            }
-            else {
-                printf("invalid input passed\n");
-            }
-        }
-}
-*/
