@@ -3,6 +3,7 @@
 // #include "driver/i2c_types.h"
 #include "esp_log.h"
 #include "math.h"
+#include "freertos/FreeRTOS.h"
 
 
 i2c_device_config_t dev_cfg = {
@@ -154,6 +155,7 @@ void AD5933_start_freq_sweep(signed short* real_arr, signed short* imag_arr) {
             AD5933_read_reg(&status);
             ESP_LOGI("waiting", "status - %X", status);
         }
+        vTaskDelay(200 / portTICK_PERIOD_MS);
         // HERE READ FROM REGISTERS, load into big array
         // just load real and imaginary data, calculate shit later
         
