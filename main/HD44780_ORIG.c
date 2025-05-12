@@ -48,47 +48,26 @@ static uint8_t SCL_pin;
 static uint8_t LCD_cols;
 static uint8_t LCD_rows;
 
-// New I2C handles for ESP-IDF v5+
-static i2c_master_bus_handle_t i2c_bus_handle;
-static i2c_master_dev_handle_t lcd_dev_handle;
-
 static void LCD_writeNibble(uint8_t nibble, uint8_t mode);
 static void LCD_writeByte(uint8_t data, uint8_t mode);
 static void LCD_pulseEnable(uint8_t nibble);
 
+/*  @note  Modified to use I2C port 1 (I2C_NUM_1) to not conflict
+ * with Bio-Z
+ *    TODO: investigate using one I2C port for both devices
+ */
 static esp_err_t I2C_init(void)
 {
-    // New I2C master bus configuration
-    i2c_master_bus_config_t bus_config = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = I2C_NUM_0,
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
         .sda_io_num = SDA_pin,
         .scl_io_num = SCL_pin,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 100000
     };
-    
-    // Create new I2C master bus
-    esp_err_t ret = i2c_new_master_bus(&bus_config, &i2c_bus_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(tag, "Failed to initialize I2C master bus: %s", esp_err_to_name(ret));
-        return ret;
-    }
-    
-    // Device configuration for LCD
-    i2c_device_config_t dev_config = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = LCD_addr,
-        .scl_speed_hz = 100000,
-    };
-    
-    // Add LCD as a device on the bus
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_config, &lcd_dev_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(tag, "Failed to add LCD device to I2C bus: %s", esp_err_to_name(ret));
-        return ret;
-    }
-    
+	i2c_param_config(I2C_NUM_0, &conf);
+	i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0);
     return ESP_OK;
 }
 
@@ -164,12 +143,13 @@ void LCD_clearScreen(void)
 static void LCD_writeNibble(uint8_t nibble, uint8_t mode)
 {
     uint8_t data = (nibble & 0xF0) | mode | LCD_BACKLIGHT;
-    
-    // Use the new I2C transmit function
-    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &data, 1, -1);
-    if (ret != ESP_OK) {
-        ESP_LOGE(tag, "Failed to transmit data: %s", esp_err_to_name(ret));
-    }
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, data, 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);   
 
     LCD_pulseEnable(data);                                              // Clock data into LCD
 }
@@ -182,31 +162,21 @@ static void LCD_writeByte(uint8_t data, uint8_t mode)
 
 static void LCD_pulseEnable(uint8_t data)
 {
-    // Set enable high
-    uint8_t enable_high = data | LCD_ENABLE;
-    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &enable_high, 1, -1);
-    if (ret != ESP_OK) {
-        ESP_LOGE(tag, "Failed to transmit enable high: %s", esp_err_to_name(ret));
-    }
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, data | LCD_ENABLE, 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);  
     ets_delay_us(1);
 
-    // Set enable low
-    uint8_t enable_low = data & ~LCD_ENABLE;
-    ret = i2c_master_transmit(lcd_dev_handle, &enable_low, 1, -1);
-    if (ret != ESP_OK) {
-        ESP_LOGE(tag, "Failed to transmit enable low: %s", esp_err_to_name(ret));
-    }
+    cmd = i2c_cmd_link_create();
+    ESP_ERROR_CHECK(i2c_master_start(cmd));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (LCD_addr << 1) | I2C_MASTER_WRITE, 1));
+    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (data & ~LCD_ENABLE), 1));
+    ESP_ERROR_CHECK(i2c_master_stop(cmd));
+    ESP_ERROR_CHECK(i2c_master_cmd_begin(I2C_NUM_0, cmd, 1000/portTICK_PERIOD_MS));
+    i2c_cmd_link_delete(cmd);
     ets_delay_us(500);
-}
-
-// Clean up function to release I2C resources
-void LCD_deinit(void)
-{
-    if (lcd_dev_handle != NULL) {
-        i2c_master_bus_rm_device(lcd_dev_handle);
-    }
-    
-    if (i2c_bus_handle != NULL) {
-        i2c_del_master_bus(i2c_bus_handle);
-    }
 }
