@@ -7,6 +7,10 @@
 #include "rom/ets_sys.h"
 #include <esp_log.h>
 
+static const char* TAG = "HD44780_LCD";
+static const char* TAG2 = "HD44780_LCD_details";
+
+
 // LCD module defines
 #define LCD_LINEONE             0x00        // start of line 1
 #define LCD_LINETWO             0x40        // start of line 2
@@ -102,29 +106,41 @@ void LCD_init(uint8_t addr, uint8_t dataPin, uint8_t clockPin, uint8_t cols, uin
     I2C_init();
     vTaskDelay(100 / portTICK_PERIOD_MS);                                 // Initial 40 mSec delay
 
+    ESP_LOGI(TAG, " Completed I2C_init()");
+
     // Reset the LCD controller
     LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // First part of reset sequence
     vTaskDelay(10 / portTICK_PERIOD_MS);                                  // 4.1 mS delay (min)
+
+    ESP_LOGI(TAG, " Completed LCD reset sequence: Part 1");
+
     LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // second part of reset sequence
     ets_delay_us(200);                                                  // 100 uS delay (min)
     LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // Third time's a charm
     LCD_writeNibble(LCD_FUNCTION_SET_4BIT, LCD_COMMAND);                // Activate 4-bit mode
-    ets_delay_us(80);                                                   // 40 uS delay (min)
+    ets_delay_us(80);
+    // 40 uS delay (min)
+    ESP_LOGI(TAG, " Completed LCD reset sequence: Part 2");
 
     // --- Busy flag now available ---
     // Function Set instruction
     LCD_writeByte(LCD_FUNCTION_SET_4BIT, LCD_COMMAND);                  // Set mode, lines, and font
     ets_delay_us(80); 
+    ESP_LOGI(TAG, " Completed LCD setting mode/lines/font");
 
     // Clear Display instruction
     LCD_writeByte(LCD_CLEAR, LCD_COMMAND);                              // clear display RAM
     vTaskDelay(2 / portTICK_PERIOD_MS);                                   // Clearing memory takes a bit longer
-    
+    ESP_LOGI(TAG, " Completed LCD clear");
+
+
     // Entry Mode Set instruction
     LCD_writeByte(LCD_ENTRY_MODE, LCD_COMMAND);                         // Set desired shift characteristics
     ets_delay_us(80); 
 
     LCD_writeByte(LCD_DISPLAY_ON, LCD_COMMAND);                         // Ensure LCD is set to on
+    ESP_LOGI(TAG, " Completed ALL LCD setups");
+
 }
 
 void LCD_setCursor(uint8_t col, uint8_t row)
@@ -135,6 +151,7 @@ void LCD_setCursor(uint8_t col, uint8_t row)
     }
     uint8_t row_offsets[] = {LCD_LINEONE, LCD_LINETWO, LCD_LINETHREE, LCD_LINEFOUR};
     LCD_writeByte(LCD_SET_DDRAM_ADDR | (col + row_offsets[row]), LCD_COMMAND);
+    ESP_LOGI(TAG2, " Completed LCD_setCursor");
 }
 
 void LCD_writeChar(char c)
@@ -153,12 +170,14 @@ void LCD_home(void)
 {
     LCD_writeByte(LCD_HOME, LCD_COMMAND);
     vTaskDelay(2 / portTICK_PERIOD_MS);                                   // This command takes a while to complete
+    ESP_LOGI(TAG2, " Completed LCD_home()  " );
 }
 
 void LCD_clearScreen(void)
 {
     LCD_writeByte(LCD_CLEAR, LCD_COMMAND);
     vTaskDelay(2 / portTICK_PERIOD_MS);                                   // This command takes a while to complete
+    ESP_LOGI(TAG2, " Completed LCD_clearScreen");
 }
 
 static void LCD_writeNibble(uint8_t nibble, uint8_t mode)
