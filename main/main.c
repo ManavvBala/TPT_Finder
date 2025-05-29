@@ -70,6 +70,7 @@
 
 // Configure Logging prefix:
 static const char* TAG = "app_main";
+static const char* tag = "app_main - debug w Claude";
 
 
 double gain_factor;
@@ -252,8 +253,8 @@ static void impedance_task(void *arg)
  */
 void app_main(void)
 {
-    ESP_LOGI(TAG, " Pausing for user monitor connection: ");
-    delayMS(3000);
+    // ESP_LOGI(TAG, " Pausing for user monitor connection: ");
+    // delayMS(3000);
     printf("starting up\n");
 
     /*
@@ -269,6 +270,8 @@ void app_main(void)
 
         ESP_LOGI(TAG, " Configuring / initing LCD display");
         LCD_init(LCD_ADDR, I2C_SENSORS_SDA_IO, I2C_SENSORS_SCL_IO, LCD_COLS, LCD_ROWS);
+
+
         delayMS(500);
 
         xTaskCreate(&LCD_DemoTask, "LCD Task", 2048, NULL, 5, NULL);

@@ -68,8 +68,10 @@ static esp_err_t I2C_init(void)
         .i2c_port = I2C_NUM_0,
         .sda_io_num = SDA_pin,
         .scl_io_num = SCL_pin,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true
+        .glitch_ignore_cnt = 15,
+        .flags.enable_internal_pullup = true,
+        .intr_priority = 0, // Claude.ai
+        .trans_queue_depth = 0,
     };
     
     // Create new I2C master bus
@@ -83,11 +85,12 @@ static esp_err_t I2C_init(void)
     i2c_device_config_t dev_config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = LCD_addr,
-        .scl_speed_hz = 100000,
+        .scl_speed_hz = 5000,
     };
-    
+
     // Add LCD as a device on the bus
     ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_config, &lcd_dev_handle);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
     if (ret != ESP_OK) {
         ESP_LOGE(tag, "Failed to add LCD device to I2C bus: %s", esp_err_to_name(ret));
         return ret;
@@ -103,10 +106,26 @@ void LCD_init(uint8_t addr, uint8_t dataPin, uint8_t clockPin, uint8_t cols, uin
     SCL_pin = clockPin;
     LCD_cols = cols;
     LCD_rows = rows;
-    I2C_init();
+    esp_err_t initResult = I2C_init();
+
     vTaskDelay(100 / portTICK_PERIOD_MS);                                 // Initial 40 mSec delay
 
-    ESP_LOGI(TAG, " Completed I2C_init()");
+    if (initResult == ESP_OK)
+        ESP_LOGI(tag, " Completed I2C_init()");
+    else
+        ESP_LOGI(tag, "I2C_init() FAIL");
+
+    // Add this right after I2C_init() succeeds, before any LCD commands:
+        ESP_LOGI(tag, "Testing basic I2C communication...");
+        uint8_t dummy_data = 0x00;
+        esp_err_t probe_ret = i2c_master_transmit(lcd_dev_handle, &dummy_data, 1, 100);
+        ESP_LOGI(tag, "Basic probe result: %s", esp_err_to_name(probe_ret));
+
+        if (probe_ret == ESP_OK) {
+            ESP_LOGI(tag, "PCF8574 is responding");
+        } else {
+            ESP_LOGE(tag, "PCF8574 not responding properly");
+        }
 
     // Reset the LCD controller
     LCD_writeNibble(LCD_FUNCTION_RESET, LCD_COMMAND);                   // First part of reset sequence
@@ -183,13 +202,19 @@ void LCD_clearScreen(void)
 static void LCD_writeNibble(uint8_t nibble, uint8_t mode)
 {
     uint8_t data = (nibble & 0xF0) | mode | LCD_BACKLIGHT;
-    
+
+    ESP_LOGI(TAG2, "About to transmit: 0x%02X to device at 0x%02X", data, LCD_addr);
+
     // Use the new I2C transmit function
-    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &data, 1, -1);
+    // esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &data, 1, -1);
+    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &data, 1, 1000);  // Claude
     if (ret != ESP_OK) {
         ESP_LOGE(tag, "Failed to transmit data: %s", esp_err_to_name(ret));
+        return;
     }
-
+    else
+        ESP_LOGI(TAG2, "transmitted a nibble successfully to LCD");
+    ets_delay_us(500);
     LCD_pulseEnable(data);                                              // Clock data into LCD
 }
 
@@ -203,11 +228,12 @@ static void LCD_pulseEnable(uint8_t data)
 {
     // Set enable high
     uint8_t enable_high = data | LCD_ENABLE;
-    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &enable_high, 1, -1);
+    // esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &enable_high, 1, -1);
+    esp_err_t ret = i2c_master_transmit(lcd_dev_handle, &enable_high, 1, 1000); // Claude
     if (ret != ESP_OK) {
         ESP_LOGE(tag, "Failed to transmit enable high: %s", esp_err_to_name(ret));
     }
-    ets_delay_us(1);
+    ets_delay_us(10);
 
     // Set enable low
     uint8_t enable_low = data & ~LCD_ENABLE;
