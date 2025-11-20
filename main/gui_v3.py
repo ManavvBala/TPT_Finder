@@ -9,17 +9,6 @@ from datetime import datetime
 sys.path.append('/home/tpt-finder/Desktop/brl_data/brl_data')
 import brl_data
 
-
-'''
-Instructions:
-run deactivate if (venv) is active
-run "source esp32-env/bin/activate"
-
-calibrate by clicking on the monitor at the bottom of the IDE to run the C code
-make sure to exit the serial monitor before running this GUI
-run python gui.py
-'''
-
 today = datetime.now().strftime("%Y-%m-%d")
 data_subfolder = os.path.join("data", today)
 os.makedirs(data_subfolder, exist_ok=True)
@@ -36,13 +25,14 @@ df.set_folders(
 )
 
 df.set_metadata(
-    names=["Impedance", "Phase", "Material", "Trial"],
-    types=[float, float, str, int],
+    names=["Impedance", "Phase", "Material", "Trial", "TestTaker"],
+    types=[float, float, str, int, str],
     notes=[
         "Measured impedance magnitude (Ω)",
         "Measured phase (°)",
         "Material under test",
-        "Trial number for this material"
+        "Trial number for this material",
+        "Name of test taker (from GUI)"
     ]
 )
 
@@ -108,6 +98,13 @@ class ImpedanceGUI(QtWidgets.QMainWindow):
         self.setWindowTitle("ESP32 Impedance Monitor")
         self.resize(600, 500)
 
+        taker_layout = QtWidgets.QHBoxLayout()
+        self.taker_label = QtWidgets.QLabel("Test Taker:")
+        self.taker_input = QtWidgets.QLineEdit()
+        self.taker_input.setPlaceholderText("Enter your name")
+        taker_layout.addWidget(self.taker_label)
+        taker_layout.addWidget(self.taker_input)
+
         material_layout = QtWidgets.QHBoxLayout()
         self.material_label = QtWidgets.QLabel("Material:")
         self.material_input = QtWidgets.QLineEdit()
@@ -135,6 +132,7 @@ class ImpedanceGUI(QtWidgets.QMainWindow):
         self.plot_data = deque(maxlen=200)
 
         layout = QtWidgets.QVBoxLayout()
+        layout.addLayout(taker_layout)
         layout.addLayout(material_layout)
         layout.addWidget(self.label_impedance)
         layout.addWidget(self.label_phase)
@@ -150,7 +148,6 @@ class ImpedanceGUI(QtWidgets.QMainWindow):
         self.serial_reader.start()
 
         self.recording = False
-
         self.trial_counter = {} 
         self.trial_number = 0  
 
@@ -163,7 +160,8 @@ class ImpedanceGUI(QtWidgets.QMainWindow):
 
         if self.recording:
             material_name = self.material_input.text().strip() or "Unknown"
-            df.write([impedance, phase, material_name, self.trial_number])
+            df.write([impedance, phase, material_name, self.trial_number,
+                      df.metadata.d.get("TestTaker", "Unknown")])
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Space:
@@ -171,6 +169,10 @@ class ImpedanceGUI(QtWidgets.QMainWindow):
             material_name = self.material_input.text().strip() or "Unknown"
 
             if self.recording:
+                test_taker = self.taker_input.text().strip() or "Unknown"
+                df.metadata.d["TestTaker"] = test_taker
+                print(f"Metadata updated: TestTaker = {test_taker}")
+
                 if material_name not in self.trial_counter:
                     self.trial_counter[material_name] = 1
                 else:
