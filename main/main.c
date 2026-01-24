@@ -7,7 +7,7 @@
 #include "driver/i2c_types.h"
 #include "driver/usb_serial_jtag.h"
 #include "AD5933.h"
-#include "LogWriter.h"
+// #include "LogWriter.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -16,16 +16,16 @@
 /*
  *   Set up correct i2c pins on esp32 version
  */
-//#define I2C_MASTER_SCL_IO 9  // for old esp32 board
-//#define I2C_MASTER_SDA_IO 8
-#define I2C_MASTER_SCL_IO 22  // for new esp32c6 board
+// #define I2C_MASTER_SCL_IO 9  // for old esp32 board
+// #define I2C_MASTER_SDA_IO 8
+#define I2C_MASTER_SCL_IO 20  // for new esp32c6 board
 #define I2C_MASTER_SDA_IO 21 
 
 
 #define MHz_6 6000000
 #define INTERNAL_CLOCK_FREQ 16000000
 
-#define START_FREQ 30000
+#define START_FREQ 33000
 #define NUM_INCR 1
 #define FREQ_INCR 1000
 
@@ -77,73 +77,6 @@ void print_double_arr(double* arr, int n) {
         //printf("arr contents: [%d] = %x\n", i, arr[i]);
     }
 }
-
-/*
-void app_main(void) {
-    //HandleSerialInput();
-    usb_serial_jtag_driver_config_t usb_serial_config = {
-        .rx_buffer_size = BUFFER_SIZE,
-        .tx_buffer_size = BUFFER_SIZE,
-    };
-    
-    // Install the USB Serial JTAG driver
-    esp_err_t ret = usb_serial_jtag_driver_install(&usb_serial_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "USB Serial JTAG driver installation failed: %s", esp_err_to_name(ret));
-        return;
-    }
-    ESP_LOGI(TAG, "USB Serial JTAG driver installed successfully");
-
-    uint8_t data[BUFFER_SIZE];
-    uint16_t bytes_collected = 0;
-    
-    // Echo welcome message
-    const char *welcome = "ESP32-C3 USB Serial Ready\r\n";
-    usb_serial_jtag_write_bytes((const uint8_t*)welcome, strlen(welcome), pdMS_TO_TICKS(100));
-    
-    while (1) {
-        // Read data from USB Serial (only read what we have space for)
-        int bytes_read = 0;
-        if (bytes_collected < BUFFER_SIZE - 1) {
-            bytes_read = usb_serial_jtag_read_bytes(data + bytes_collected, 1, pdMS_TO_TICKS(10));
-        }
-        
-        // If we read any bytes
-        if (bytes_read > 0) {
-            // Echo character immediately so user sees what they type
-            usb_serial_jtag_write_bytes(data + bytes_collected, bytes_read, pdMS_TO_TICKS(10));
-            
-            // Update bytes collected
-            bytes_collected += bytes_read;
-            
-            // Check if the last character is a newline or carriage return
-            if (data[bytes_collected - 1] == '\n' || data[bytes_collected - 1] == '\r' || bytes_collected >= BUFFER_SIZE - 1) {
-                // Null-terminate the string
-                data[bytes_collected] = '\0';
-                
-                // Log the complete message
-                ESP_LOGI(TAG, "Received message (%d bytes): %s", bytes_collected, data);
-                
-                // Send a newline and prompt for next input
-                const char *prompt = "\r\n> ";
-                usb_serial_jtag_write_bytes((const uint8_t*)prompt, strlen(prompt), pdMS_TO_TICKS(100));
-                //
-                // handle input here
-                
-                // Reset the buffer
-                bytes_collected = 0;
-            }
-        }
-        
-        // Small delay to prevent tight looping
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-*/
-
-// TESTING function for more important functionality
-//  - init settings
-//  - start freq sweep
 
 void app_main(void)
 {
