@@ -1,0 +1,2 @@
+/home/tpt-finder/TPT_Finder/build/CMakeFiles/edit_cache.dir
+/home/tpt-finder/TPT_Finder/build/CMakeFiles/rebuild_cache.dir

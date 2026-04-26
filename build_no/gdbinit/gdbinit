@@ -1,0 +1,2 @@
+source /home/tpt-finder/TPT_Finder/build/gdbinit/symbols
+source /home/tpt-finder/TPT_Finder/build/gdbinit/connect

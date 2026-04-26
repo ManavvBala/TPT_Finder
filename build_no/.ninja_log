@@ -1,0 +1,11 @@
+# ninja log v5
+26	184	1759515208055329159	/home/tpt-finder/TPT_Finder/build/partition_table/partition-table.bin	7a5349d65bc0f8ab
+26	184	1759515208055329159	partition_table/partition-table.bin	7a5349d65bc0f8ab
+26	48	1759515208022814545	/home/tpt-finder/TPT_Finder/build/esp-idf/esp_system/ld/sections.ld.in	9c94ef5da7afc05b
+26	48	1759515208022814545	esp-idf/esp_system/ld/sections.ld.in	9c94ef5da7afc05b
+26	48	1759515208021814545	esp-idf/esp_system/ld/memory.ld	6d8eadf54e2bfaac
+25	38	1759515208012814539	/home/tpt-finder/TPT_Finder/build/project_elf_src_esp32c6.c	990e9639b1e185c5
+25	38	1759515208012814539	project_elf_src_esp32c6.c	990e9639b1e185c5
+26	48	1759515208021814545	/home/tpt-finder/TPT_Finder/build/esp-idf/esp_system/ld/memory.ld	6d8eadf54e2bfaac
+0	4527	1759515233451355088	build.ninja	8390f4748bd5642
+21	44	1759515233451355088	build.ninja	8390f4748bd5642

@@ -11,6 +11,7 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "led_strip.h"
 
 
 /*
@@ -33,12 +34,25 @@
 
 #define BUFFER_SIZE 1024
 
+#define IMPEDANCE_THRESHOLD 700
+
 double gain_factor;
 //double system_phase;
 double gain_factor_range[CALIBRATION_NUM_INCR];
 double system_phase_range[CALIBRATION_NUM_INCR];
 // int16_t real[NUM_INCR];
 // int16_t imag[NUM_INCR];
+
+static led_strip_handle_t led_strip;
+
+led_strip_config_t strip_config = {
+    .strip_gpio_num = 8, // GPIO pin for the LED strip
+    .max_leds = 1, // We only have one LED
+};
+
+led_strip_rmt_config_t rmt_config = {
+    .resolution_hz = 10000000, // 10 MHz resolution
+};
 
 i2c_master_bus_config_t i2c_master_config = {
     .clk_source = I2C_CLK_SRC_DEFAULT,
@@ -86,6 +100,8 @@ void app_main(void)
 
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_master_config, &bus_handle));
 
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+
     // init AD5933
     AD5933_init_i2c_device(bus_handle);
 
@@ -127,6 +143,43 @@ void app_main(void)
             ESP_LOGI("log", "Uncompensated real: %d, imag: %d", real_arr[i], imag_arr[i]);
             double impedance = AD5933_calculate_impedance(gain_factor, real_arr[i], imag_arr[i]);
             ESP_LOGI("log", "impedance magnitude: %f", impedance);
+
+            // Turn LED red if impedance above threshold, green otherwise. If no impedance measured, turn LED off.
+            // if (impedance > IMPEDANCE_THRESHOLD) {
+            //     // Turn LED red
+            //     ESP_LOGI("log", "Impedance above threshold! Measured impedance: %f", impedance);
+            //     led_strip_set_pixel(led_strip, 0, 0, 255, 0); // red
+            //     led_strip_refresh(led_strip);
+            // } else if (impedance > 0) {
+            //     // Turn LED green
+            //     ESP_LOGI("log", "Impedance below threshold. Measured impedance: %f", impedance);
+            //     led_strip_set_pixel(led_strip, 0, 255, 0, 0); // green
+            //     led_strip_refresh(led_strip);
+            // } else {
+            //     // Turn LED off
+            //     ESP_LOGI("log", "No impedance measured");
+            //     led_strip_clear(led_strip);
+            // }
+
+
+            if (impedance > 30000) {
+                ESP_LOGI("log", "Impedance above 30k. Turning LED off. Measured impedance: %f", impedance);
+                led_strip_clear(led_strip);
+            } 
+            else if (impedance > 1000) {
+                ESP_LOGI("log", "Impedance above 1k. Turning LED red. Measured impedance: %f", impedance);
+                led_strip_set_pixel(led_strip, 0, 0, 255, 0); // green
+                led_strip_refresh(led_strip);
+            } 
+            else if (impedance > 0) {
+                ESP_LOGI("log", "Impedance 1k or below. Turning LED green. Measured impedance: %f", impedance);
+                led_strip_set_pixel(led_strip, 0, 255, 0, 0); // red
+                led_strip_refresh(led_strip);
+            } 
+            else {
+                ESP_LOGI("log", "No impedance measured. Turning LED off.");
+                led_strip_clear(led_strip);
+            }
             
             // phase calculations
             bool phase_error;
